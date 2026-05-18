@@ -40,7 +40,6 @@
         let playerY = 0, jumpVelocity = 0;
         const gravity = 0.6, jumpForce = 12;
 
-        // स्मूथ जंप (Physics Based)
         function updatePhysics() {
             if (!gameActive) return;
             if (isJumping) {
@@ -105,21 +104,46 @@
             document.querySelectorAll('.obstacle').forEach(obs => obs.remove());
             score = 0; scoreDisplay.innerText = 0; playerY = 0; jumpVelocity = 0;
             player.style.transform = 'translateY(0px)';
-            isJumping = false; gameActive = true;
+            isJumping = false;
             gameOverScreen.style.display = 'none';
-            requestAnimationFrame(updatePhysics);
-            createObstacle();
+            
+            // यहाँ 100 मिलीसेकंड का छोटा सा गैप दिया है ताकि टच इवेंट पूरी तरह खत्म हो जाए
+            setTimeout(() => {
+                gameActive = true;
+                requestAnimationFrame(updatePhysics);
+                createObstacle();
+            }, 100);
         }
 
-        // कंट्रोल्स (Instant Touch Response)
-        gameContainer.addEventListener('touchstart', (e) => { if(gameActive) { e.preventDefault(); jump(); } }, {passive: false});
-        gameContainer.addEventListener('mousedown', () => { if(gameActive) jump(); });
-        window.addEventListener('keydown', (e) => { if (e.code === 'Space') jump(); });
-        
-        restartBtn.addEventListener('click', (e) => { e.stopPropagation(); restartGame(); });
-        restartBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); restartGame(); });
+        // मुख्य स्क्रीन टच से सिर्फ जंप होगा
+        gameContainer.addEventListener('touchstart', (e) => { 
+            if(gameActive) { 
+                e.preventDefault(); 
+                jump(); 
+            } 
+        }, {passive: false});
 
-        // स्टार्ट
+        gameContainer.addEventListener('mousedown', () => { 
+            if(gameActive) jump(); 
+        });
+
+        window.addEventListener('keydown', (e) => { 
+            if (e.code === 'Space') jump(); 
+        });
+        
+        // रीस्टार्ट बटन के लिए खास फिक्स जो जंप इवेंट को रोकेगा
+        restartBtn.addEventListener('click', (e) => { 
+            e.preventDefault();
+            e.stopPropagation(); 
+            restartGame(); 
+        });
+        
+        restartBtn.addEventListener('touchstart', (e) => { 
+            e.preventDefault();
+            e.stopPropagation(); 
+            restartGame(); 
+        }, {passive: false});
+
         requestAnimationFrame(updatePhysics);
         createObstacle();
     </script>
