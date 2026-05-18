@@ -1,0 +1,1411 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>2D Endless Runner Game</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #111;
+            font-family: sans-serif;
+        }
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            max-width: 800px;
+            max-height: 450px;
+            margin: auto;
+            background: linear-gradient(to bottom, #1a0b2e, #4c1c5c);
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        /* प्लेयर (कैरेक्टर) */
+        #player {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: #ff007f;
+            border-radius: 8px;
+            bottom: 50px;
+            left: 50px;
+            box-shadow: 0 0 10px #ff007f;
+            transition: bottom 0.05s linear;
+        }
+        /* रुकावट (Obstacle) */
+        .obstacle {
+            position: absolute;
+            width: 30px;
+            height: 45px;
+            background: #00ffff;
+            border-radius: 4px;
+            bottom: 50px;
+            box-shadow: 0 0 10px #00ffff;
+        }
+        /* जमीन (Ground) */
+        #ground {
+            position: absolute;
+            width: 100%;
+            height: 50px;
+            background: #222;
+            border-top: 4px solid #fff;
+            bottom: 0;
+        }
+        /* स्कोर बोर्ड */
+        #scoreBoard {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            font-size: 20px;
+            font-weight: bold;
+            text-shadow: 0 0 5px #000;
+            z-index: 10;
+        }
+        /* गेम ओवर स्क्रीन */
+        #gameOverScreen {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            z-index: 20;
+        }
+        #gameOverScreen h1 {
+            font-size: 36px;
+            color: #ff007f;
+            margin-bottom: 10px;
+        }
+        #gameOverScreen p {
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        #restartBtn {
+            padding: 12px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            background: #00ffff;
+            color: #000;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            box-shadow: 0 0 15px #00ffff;
+        }
+        /* मोबाइल के लिए टच हिंट */
+        #touchHint {
+            position: absolute;
+            bottom: 60px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255,255,255,0.4);
+            font-size: 14px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="gameContainer">
+        <div id="scoreBoard">स्कोर: <span id="score">0</span></div>
+        <div id="player"></div>
+        <div id="ground"></div>
+        <div id="touchHint">जंप करने के लिए कहीं भी टच करें</div>
+        
+        <div id="gameOverScreen">
+            <h1>गेम ओवर!</h1>
+            <p>आपका स्कोर: <span id="finalScore">0</span></p>
+            <button id="restartBtn">फिर से खेलें</button>
+        </div>
+    </div>
+
+    <script>
+        const player = document.getElementById('player');
+        const gameContainer = document.getElementById('gameContainer');
+        const scoreDisplay = document.getElementById('score');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const finalScoreDisplay = document.getElementById('finalScore');
+        const restartBtn = document.getElementById('restartBtn');
+
+        let isJumping = false;
+        let score = 0;
+        let gameActive = true;
+        let obstacleTimeout;
+        let gameLoopInterval;
+        
+        // स्क्रीन साइज के हिसाब से वैल्यू सेट करना
+        const groundHeight = 50;
+        let playerBottom = groundHeight;
+        let gravity = 3;
+        let jumpStrength = 130;
+
+        // जंप करने का फंक्शन (मोबाइल टच और कंप्यूटर स्पेस-बार दोनों के लिए)
+        function jump() {
+            if (isJumping || !gameActive) return;
+            isJumping = true;
+            
+            let upInterval = setInterval(() => {
+                if (playerBottom >= groundHeight + jumpStrength) {
+                    clearInterval(upInterval);
+                    // नीचे आने का लॉजिक
+                    let downInterval = setInterval(() => {
+                        if (playerBottom <= groundHeight) {
+                            clearInterval(downInterval);
+                            playerBottom = groundHeight;
+                            player.style.bottom = playerBottom + 'px';
+                            isJumping = false;
+                        } else {
+                            playerBottom -= gravity * 2.5;
+                            player.style.bottom = playerBottom + 'px';
+                        }
+                    }, 20);
+                } else {
+                    playerBottom += gravity * 3;
+                    player.style.bottom = playerBottom + 'px';
+                }
+            }, 20);
+        }
+
+        // रुकावटें (Obstacles) बनाने का फंक्शन
+        function createObstacle() {
+            if (!gameActive) return;
+
+            const obstacle = document.createElement('div');
+            obstacle.classList.add('obstacle');
+            gameContainer.appendChild(obstacle);
+
+            let obstacleLeft = gameContainer.offsetWidth;
+            obstacle.style.left = obstacleLeft + 'px';
+
+            // रुकावट को आगे बढ़ाने की स्पीड
+            let moveSpeed = 5 + Math.floor(score / 5); // स्कोर बढ़ने पर स्पीड बढ़ेगी
+
+            let obstacleInterval = setInterval(() => {
+                if (!gameActive) {
+                    clearInterval(obstacleInterval);
+                    return;
+                }
+
+                obstacleLeft -= moveSpeed;
+                obstacle.style.left = obstacleLeft + 'px';
+
+                // जब रुकावट स्क्रीन से बाहर चली जाए
+                if (obstacleLeft < -30) {
+                    clearInterval(obstacleInterval);
+                    obstacle.remove();
+                    score++;
+                    scoreDisplay.innerText = score;
+                }
+
+                // टक्कर (Collision) चेक करने का लॉजिक
+                let playerRect = player.getBoundingClientRect();
+                let obstacleRect = obstacle.getBoundingClientRect();
+
+                if (
+                    playerRect.left < obstacleRect.right &&
+                    playerRect.right > obstacleRect.left &&
+                    playerRect.bottom > obstacleRect.top &&
+                    playerRect.top < obstacleRect.bottom
+                ) {
+                    clearInterval(obstacleInterval);
+                    endGame();
+                }
+            }, 20);
+
+            // अगली रुकावट रैंडम समय के बाद आएगी
+            let randomTime = Math.random() * (2000 - 900) + 900;
+            obstacleTimeout = setTimeout(createObstacle, randomTime);
+        }
+
+        // गेम खत्म होने पर
+        function endGame() {
+            gameActive = false;
+            clearTimeout(obstacleTimeout);
+            finalScoreDisplay.innerText = score;
+            gameOverScreen.style.display = 'flex';
+        }
+
+        // गेम रीस्टार्ट करने के लिए
+        function restartGame() {
+            // पुरानी रुकावटें हटाना
+            const obstacles = document.querySelectorAll('.obstacle');
+            obstacles.forEach(obs => obs.remove());
+
+            score = 0;
+            scoreDisplay.innerText = score;
+            playerBottom = groundHeight;
+            player.style.bottom = playerBottom + 'px';
+            isJumping = false;
+            gameActive = true;
+            gameOverScreen.style.display = 'none';
+            
+            createObstacle();
+        }
+
+        // कंट्रोल्स (Controls) - स्क्रीन टच और कीबोर्ड दोनों सपोर्टेड हैं
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                jump();
+            }
+        });
+
+        gameContainer.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // डबल टैप ज़ूम रोकने के लिए
+            jump();
+        });
+        
+        gameContainer.addEventListener('mousedown', () => {
+            jump();
+        });
+
+        restartBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // बटन क्लिक पर जंप न हो
+            restartGame();
+        });
+
+        // पहली बार गेम शुरू करना
+        createObstacle();
+    </script>
+</body>
+  </html><!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>2D Endless Runner Game</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #111;
+            font-family: sans-serif;
+        }
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            max-width: 800px;
+            max-height: 450px;
+            margin: auto;
+            background: linear-gradient(to bottom, #1a0b2e, #4c1c5c);
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        /* प्लेयर (कैरेक्टर) */
+        #player {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: #ff007f;
+            border-radius: 8px;
+            bottom: 50px;
+            left: 50px;
+            box-shadow: 0 0 10px #ff007f;
+            transition: bottom 0.05s linear;
+        }
+        /* रुकावट (Obstacle) */
+        .obstacle {
+            position: absolute;
+            width: 30px;
+            height: 45px;
+            background: #00ffff;
+            border-radius: 4px;
+            bottom: 50px;
+            box-shadow: 0 0 10px #00ffff;
+        }
+        /* जमीन (Ground) */
+        #ground {
+            position: absolute;
+            width: 100%;
+            height: 50px;
+            background: #222;
+            border-top: 4px solid #fff;
+            bottom: 0;
+        }
+        /* स्कोर बोर्ड */
+        #scoreBoard {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            font-size: 20px;
+            font-weight: bold;
+            text-shadow: 0 0 5px #000;
+            z-index: 10;
+        }
+        /* गेम ओवर स्क्रीन */
+        #gameOverScreen {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            z-index: 20;
+        }
+        #gameOverScreen h1 {
+            font-size: 36px;
+            color: #ff007f;
+            margin-bottom: 10px;
+        }
+        #gameOverScreen p {
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        #restartBtn {
+            padding: 12px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            background: #00ffff;
+            color: #000;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            box-shadow: 0 0 15px #00ffff;
+        }
+        /* मोबाइल के लिए टच हिंट */
+        #touchHint {
+            position: absolute;
+            bottom: 60px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255,255,255,0.4);
+            font-size: 14px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="gameContainer">
+        <div id="scoreBoard">स्कोर: <span id="score">0</span></div>
+        <div id="player"></div>
+        <div id="ground"></div>
+        <div id="touchHint">जंप करने के लिए कहीं भी टच करें</div>
+        
+        <div id="gameOverScreen">
+            <h1>गेम ओवर!</h1>
+            <p>आपका स्कोर: <span id="finalScore">0</span></p>
+            <button id="restartBtn">फिर से खेलें</button>
+        </div>
+    </div>
+
+    <script>
+        const player = document.getElementById('player');
+        const gameContainer = document.getElementById('gameContainer');
+        const scoreDisplay = document.getElementById('score');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const finalScoreDisplay = document.getElementById('finalScore');
+        const restartBtn = document.getElementById('restartBtn');
+
+        let isJumping = false;
+        let score = 0;
+        let gameActive = true;
+        let obstacleTimeout;
+        let gameLoopInterval;
+        
+        // स्क्रीन साइज के हिसाब से वैल्यू सेट करना
+        const groundHeight = 50;
+        let playerBottom = groundHeight;
+        let gravity = 3;
+        let jumpStrength = 130;
+
+        // जंप करने का फंक्शन (मोबाइल टच और कंप्यूटर स्पेस-बार दोनों के लिए)
+        function jump() {
+            if (isJumping || !gameActive) return;
+            isJumping = true;
+            
+            let upInterval = setInterval(() => {
+                if (playerBottom >= groundHeight + jumpStrength) {
+                    clearInterval(upInterval);
+                    // नीचे आने का लॉजिक
+                    let downInterval = setInterval(() => {
+                        if (playerBottom <= groundHeight) {
+                            clearInterval(downInterval);
+                            playerBottom = groundHeight;
+                            player.style.bottom = playerBottom + 'px';
+                            isJumping = false;
+                        } else {
+                            playerBottom -= gravity * 2.5;
+                            player.style.bottom = playerBottom + 'px';
+                        }
+                    }, 20);
+                } else {
+                    playerBottom += gravity * 3;
+                    player.style.bottom = playerBottom + 'px';
+                }
+            }, 20);
+        }
+
+        // रुकावटें (Obstacles) बनाने का फंक्शन
+        function createObstacle() {
+            if (!gameActive) return;
+
+            const obstacle = document.createElement('div');
+            obstacle.classList.add('obstacle');
+            gameContainer.appendChild(obstacle);
+
+            let obstacleLeft = gameContainer.offsetWidth;
+            obstacle.style.left = obstacleLeft + 'px';
+
+            // रुकावट को आगे बढ़ाने की स्पीड
+            let moveSpeed = 5 + Math.floor(score / 5); // स्कोर बढ़ने पर स्पीड बढ़ेगी
+
+            let obstacleInterval = setInterval(() => {
+                if (!gameActive) {
+                    clearInterval(obstacleInterval);
+                    return;
+                }
+
+                obstacleLeft -= moveSpeed;
+                obstacle.style.left = obstacleLeft + 'px';
+
+                // जब रुकावट स्क्रीन से बाहर चली जाए
+                if (obstacleLeft < -30) {
+                    clearInterval(obstacleInterval);
+                    obstacle.remove();
+                    score++;
+                    scoreDisplay.innerText = score;
+                }
+
+                // टक्कर (Collision) चेक करने का लॉजिक
+                let playerRect = player.getBoundingClientRect();
+                let obstacleRect = obstacle.getBoundingClientRect();
+
+                if (
+                    playerRect.left < obstacleRect.right &&
+                    playerRect.right > obstacleRect.left &&
+                    playerRect.bottom > obstacleRect.top &&
+                    playerRect.top < obstacleRect.bottom
+                ) {
+                    clearInterval(obstacleInterval);
+                    endGame();
+                }
+            }, 20);
+
+            // अगली रुकावट रैंडम समय के बाद आएगी
+            let randomTime = Math.random() * (2000 - 900) + 900;
+            obstacleTimeout = setTimeout(createObstacle, randomTime);
+        }
+
+        // गेम खत्म होने पर
+        function endGame() {
+            gameActive = false;
+            clearTimeout(obstacleTimeout);
+            finalScoreDisplay.innerText = score;
+            gameOverScreen.style.display = 'flex';
+        }
+
+        // गेम रीस्टार्ट करने के लिए
+        function restartGame() {
+            // पुरानी रुकावटें हटाना
+            const obstacles = document.querySelectorAll('.obstacle');
+            obstacles.forEach(obs => obs.remove());
+
+            score = 0;
+            scoreDisplay.innerText = score;
+            playerBottom = groundHeight;
+            player.style.bottom = playerBottom + 'px';
+            isJumping = false;
+            gameActive = true;
+            gameOverScreen.style.display = 'none';
+            
+            createObstacle();
+        }
+
+        // कंट्रोल्स (Controls) - स्क्रीन टच और कीबोर्ड दोनों सपोर्टेड हैं
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                jump();
+            }
+        });
+
+        gameContainer.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // डबल टैप ज़ूम रोकने के लिए
+            jump();
+        });
+        
+        gameContainer.addEventListener('mousedown', () => {
+            jump();
+        });
+
+        restartBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // बटन क्लिक पर जंप न हो
+            restartGame();
+        });
+
+        // पहली बार गेम शुरू करना
+        createObstacle();
+    </script>
+</body>
+  </html><!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>2D Endless Runner Game</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #111;
+            font-family: sans-serif;
+        }
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            max-width: 800px;
+            max-height: 450px;
+            margin: auto;
+            background: linear-gradient(to bottom, #1a0b2e, #4c1c5c);
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        /* प्लेयर (कैरेक्टर) */
+        #player {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: #ff007f;
+            border-radius: 8px;
+            bottom: 50px;
+            left: 50px;
+            box-shadow: 0 0 10px #ff007f;
+            transition: bottom 0.05s linear;
+        }
+        /* रुकावट (Obstacle) */
+        .obstacle {
+            position: absolute;
+            width: 30px;
+            height: 45px;
+            background: #00ffff;
+            border-radius: 4px;
+            bottom: 50px;
+            box-shadow: 0 0 10px #00ffff;
+        }
+        /* जमीन (Ground) */
+        #ground {
+            position: absolute;
+            width: 100%;
+            height: 50px;
+            background: #222;
+            border-top: 4px solid #fff;
+            bottom: 0;
+        }
+        /* स्कोर बोर्ड */
+        #scoreBoard {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            font-size: 20px;
+            font-weight: bold;
+            text-shadow: 0 0 5px #000;
+            z-index: 10;
+        }
+        /* गेम ओवर स्क्रीन */
+        #gameOverScreen {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            z-index: 20;
+        }
+        #gameOverScreen h1 {
+            font-size: 36px;
+            color: #ff007f;
+            margin-bottom: 10px;
+        }
+        #gameOverScreen p {
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        #restartBtn {
+            padding: 12px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            background: #00ffff;
+            color: #000;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            box-shadow: 0 0 15px #00ffff;
+        }
+        /* मोबाइल के लिए टच हिंट */
+        #touchHint {
+            position: absolute;
+            bottom: 60px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255,255,255,0.4);
+            font-size: 14px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="gameContainer">
+        <div id="scoreBoard">स्कोर: <span id="score">0</span></div>
+        <div id="player"></div>
+        <div id="ground"></div>
+        <div id="touchHint">जंप करने के लिए कहीं भी टच करें</div>
+        
+        <div id="gameOverScreen">
+            <h1>गेम ओवर!</h1>
+            <p>आपका स्कोर: <span id="finalScore">0</span></p>
+            <button id="restartBtn">फिर से खेलें</button>
+        </div>
+    </div>
+
+    <script>
+        const player = document.getElementById('player');
+        const gameContainer = document.getElementById('gameContainer');
+        const scoreDisplay = document.getElementById('score');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const finalScoreDisplay = document.getElementById('finalScore');
+        const restartBtn = document.getElementById('restartBtn');
+
+        let isJumping = false;
+        let score = 0;
+        let gameActive = true;
+        let obstacleTimeout;
+        let gameLoopInterval;
+        
+        // स्क्रीन साइज के हिसाब से वैल्यू सेट करना
+        const groundHeight = 50;
+        let playerBottom = groundHeight;
+        let gravity = 3;
+        let jumpStrength = 130;
+
+        // जंप करने का फंक्शन (मोबाइल टच और कंप्यूटर स्पेस-बार दोनों के लिए)
+        function jump() {
+            if (isJumping || !gameActive) return;
+            isJumping = true;
+            
+            let upInterval = setInterval(() => {
+                if (playerBottom >= groundHeight + jumpStrength) {
+                    clearInterval(upInterval);
+                    // नीचे आने का लॉजिक
+                    let downInterval = setInterval(() => {
+                        if (playerBottom <= groundHeight) {
+                            clearInterval(downInterval);
+                            playerBottom = groundHeight;
+                            player.style.bottom = playerBottom + 'px';
+                            isJumping = false;
+                        } else {
+                            playerBottom -= gravity * 2.5;
+                            player.style.bottom = playerBottom + 'px';
+                        }
+                    }, 20);
+                } else {
+                    playerBottom += gravity * 3;
+                    player.style.bottom = playerBottom + 'px';
+                }
+            }, 20);
+        }
+
+        // रुकावटें (Obstacles) बनाने का फंक्शन
+        function createObstacle() {
+            if (!gameActive) return;
+
+            const obstacle = document.createElement('div');
+            obstacle.classList.add('obstacle');
+            gameContainer.appendChild(obstacle);
+
+            let obstacleLeft = gameContainer.offsetWidth;
+            obstacle.style.left = obstacleLeft + 'px';
+
+            // रुकावट को आगे बढ़ाने की स्पीड
+            let moveSpeed = 5 + Math.floor(score / 5); // स्कोर बढ़ने पर स्पीड बढ़ेगी
+
+            let obstacleInterval = setInterval(() => {
+                if (!gameActive) {
+                    clearInterval(obstacleInterval);
+                    return;
+                }
+
+                obstacleLeft -= moveSpeed;
+                obstacle.style.left = obstacleLeft + 'px';
+
+                // जब रुकावट स्क्रीन से बाहर चली जाए
+                if (obstacleLeft < -30) {
+                    clearInterval(obstacleInterval);
+                    obstacle.remove();
+                    score++;
+                    scoreDisplay.innerText = score;
+                }
+
+                // टक्कर (Collision) चेक करने का लॉजिक
+                let playerRect = player.getBoundingClientRect();
+                let obstacleRect = obstacle.getBoundingClientRect();
+
+                if (
+                    playerRect.left < obstacleRect.right &&
+                    playerRect.right > obstacleRect.left &&
+                    playerRect.bottom > obstacleRect.top &&
+                    playerRect.top < obstacleRect.bottom
+                ) {
+                    clearInterval(obstacleInterval);
+                    endGame();
+                }
+            }, 20);
+
+            // अगली रुकावट रैंडम समय के बाद आएगी
+            let randomTime = Math.random() * (2000 - 900) + 900;
+            obstacleTimeout = setTimeout(createObstacle, randomTime);
+        }
+
+        // गेम खत्म होने पर
+        function endGame() {
+            gameActive = false;
+            clearTimeout(obstacleTimeout);
+            finalScoreDisplay.innerText = score;
+            gameOverScreen.style.display = 'flex';
+        }
+
+        // गेम रीस्टार्ट करने के लिए
+        function restartGame() {
+            // पुरानी रुकावटें हटाना
+            const obstacles = document.querySelectorAll('.obstacle');
+            obstacles.forEach(obs => obs.remove());
+
+            score = 0;
+            scoreDisplay.innerText = score;
+            playerBottom = groundHeight;
+            player.style.bottom = playerBottom + 'px';
+            isJumping = false;
+            gameActive = true;
+            gameOverScreen.style.display = 'none';
+            
+            createObstacle();
+        }
+
+        // कंट्रोल्स (Controls) - स्क्रीन टच और कीबोर्ड दोनों सपोर्टेड हैं
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                jump();
+            }
+        });
+
+        gameContainer.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // डबल टैप ज़ूम रोकने के लिए
+            jump();
+        });
+        
+        gameContainer.addEventListener('mousedown', () => {
+            jump();
+        });
+
+        restartBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // बटन क्लिक पर जंप न हो
+            restartGame();
+        });
+
+        // पहली बार गेम शुरू करना
+        createObstacle();
+    </script>
+</body>
+      </html><!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>2D Endless Runner Game</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #111;
+            font-family: sans-serif;
+        }
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            max-width: 800px;
+            max-height: 450px;
+            margin: auto;
+            background: linear-gradient(to bottom, #1a0b2e, #4c1c5c);
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        /* प्लेयर (कैरेक्टर) */
+        #player {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: #ff007f;
+            border-radius: 8px;
+            bottom: 50px;
+            left: 50px;
+            box-shadow: 0 0 10px #ff007f;
+            transition: bottom 0.05s linear;
+        }
+        /* रुकावट (Obstacle) */
+        .obstacle {
+            position: absolute;
+            width: 30px;
+            height: 45px;
+            background: #00ffff;
+            border-radius: 4px;
+            bottom: 50px;
+            box-shadow: 0 0 10px #00ffff;
+        }
+        /* जमीन (Ground) */
+        #ground {
+            position: absolute;
+            width: 100%;
+            height: 50px;
+            background: #222;
+            border-top: 4px solid #fff;
+            bottom: 0;
+        }
+        /* स्कोर बोर्ड */
+        #scoreBoard {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            font-size: 20px;
+            font-weight: bold;
+            text-shadow: 0 0 5px #000;
+            z-index: 10;
+        }
+        /* गेम ओवर स्क्रीन */
+        #gameOverScreen {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            z-index: 20;
+        }
+        #gameOverScreen h1 {
+            font-size: 36px;
+            color: #ff007f;
+            margin-bottom: 10px;
+        }
+        #gameOverScreen p {
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        #restartBtn {
+            padding: 12px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            background: #00ffff;
+            color: #000;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            box-shadow: 0 0 15px #00ffff;
+        }
+        /* मोबाइल के लिए टच हिंट */
+        #touchHint {
+            position: absolute;
+            bottom: 60px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255,255,255,0.4);
+            font-size: 14px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="gameContainer">
+        <div id="scoreBoard">स्कोर: <span id="score">0</span></div>
+        <div id="player"></div>
+        <div id="ground"></div>
+        <div id="touchHint">जंप करने के लिए कहीं भी टच करें</div>
+        
+        <div id="gameOverScreen">
+            <h1>गेम ओवर!</h1>
+            <p>आपका स्कोर: <span id="finalScore">0</span></p>
+            <button id="restartBtn">फिर से खेलें</button>
+        </div>
+    </div>
+
+    <script>
+        const player = document.getElementById('player');
+        const gameContainer = document.getElementById('gameContainer');
+        const scoreDisplay = document.getElementById('score');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const finalScoreDisplay = document.getElementById('finalScore');
+        const restartBtn = document.getElementById('restartBtn');
+
+        let isJumping = false;
+        let score = 0;
+        let gameActive = true;
+        let obstacleTimeout;
+        let gameLoopInterval;
+        
+        // स्क्रीन साइज के हिसाब से वैल्यू सेट करना
+        const groundHeight = 50;
+        let playerBottom = groundHeight;
+        let gravity = 3;
+        let jumpStrength = 130;
+
+        // जंप करने का फंक्शन (मोबाइल टच और कंप्यूटर स्पेस-बार दोनों के लिए)
+        function jump() {
+            if (isJumping || !gameActive) return;
+            isJumping = true;
+            
+            let upInterval = setInterval(() => {
+                if (playerBottom >= groundHeight + jumpStrength) {
+                    clearInterval(upInterval);
+                    // नीचे आने का लॉजिक
+                    let downInterval = setInterval(() => {
+                        if (playerBottom <= groundHeight) {
+                            clearInterval(downInterval);
+                            playerBottom = groundHeight;
+                            player.style.bottom = playerBottom + 'px';
+                            isJumping = false;
+                        } else {
+                            playerBottom -= gravity * 2.5;
+                            player.style.bottom = playerBottom + 'px';
+                        }
+                    }, 20);
+                } else {
+                    playerBottom += gravity * 3;
+                    player.style.bottom = playerBottom + 'px';
+                }
+            }, 20);
+        }
+
+        // रुकावटें (Obstacles) बनाने का फंक्शन
+        function createObstacle() {
+            if (!gameActive) return;
+
+            const obstacle = document.createElement('div');
+            obstacle.classList.add('obstacle');
+            gameContainer.appendChild(obstacle);
+
+            let obstacleLeft = gameContainer.offsetWidth;
+            obstacle.style.left = obstacleLeft + 'px';
+
+            // रुकावट को आगे बढ़ाने की स्पीड
+            let moveSpeed = 5 + Math.floor(score / 5); // स्कोर बढ़ने पर स्पीड बढ़ेगी
+
+            let obstacleInterval = setInterval(() => {
+                if (!gameActive) {
+                    clearInterval(obstacleInterval);
+                    return;
+                }
+
+                obstacleLeft -= moveSpeed;
+                obstacle.style.left = obstacleLeft + 'px';
+
+                // जब रुकावट स्क्रीन से बाहर चली जाए
+                if (obstacleLeft < -30) {
+                    clearInterval(obstacleInterval);
+                    obstacle.remove();
+                    score++;
+                    scoreDisplay.innerText = score;
+                }
+
+                // टक्कर (Collision) चेक करने का लॉजिक
+                let playerRect = player.getBoundingClientRect();
+                let obstacleRect = obstacle.getBoundingClientRect();
+
+                if (
+                    playerRect.left < obstacleRect.right &&
+                    playerRect.right > obstacleRect.left &&
+                    playerRect.bottom > obstacleRect.top &&
+                    playerRect.top < obstacleRect.bottom
+                ) {
+                    clearInterval(obstacleInterval);
+                    endGame();
+                }
+            }, 20);
+
+            // अगली रुकावट रैंडम समय के बाद आएगी
+            let randomTime = Math.random() * (2000 - 900) + 900;
+            obstacleTimeout = setTimeout(createObstacle, randomTime);
+        }
+
+        // गेम खत्म होने पर
+        function endGame() {
+            gameActive = false;
+            clearTimeout(obstacleTimeout);
+            finalScoreDisplay.innerText = score;
+            gameOverScreen.style.display = 'flex';
+        }
+
+        // गेम रीस्टार्ट करने के लिए
+        function restartGame() {
+            // पुरानी रुकावटें हटाना
+            const obstacles = document.querySelectorAll('.obstacle');
+            obstacles.forEach(obs => obs.remove());
+
+            score = 0;
+            scoreDisplay.innerText = score;
+            playerBottom = groundHeight;
+            player.style.bottom = playerBottom + 'px';
+            isJumping = false;
+            gameActive = true;
+            gameOverScreen.style.display = 'none';
+            
+            createObstacle();
+        }
+
+        // कंट्रोल्स (Controls) - स्क्रीन टच और कीबोर्ड दोनों सपोर्टेड हैं
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                jump();
+            }
+        });
+
+        gameContainer.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // डबल टैप ज़ूम रोकने के लिए
+            jump();
+        });
+        
+        gameContainer.addEventListener('mousedown', () => {
+            jump();
+        });
+
+        restartBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // बटन क्लिक पर जंप न हो
+            restartGame();
+        });
+
+        // पहली बार गेम शुरू करना
+        createObstacle();
+    </script>
+</body>
+          </html><!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>2D Endless Runner Game</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #111;
+            font-family: sans-serif;
+        }
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            max-width: 800px;
+            max-height: 450px;
+            margin: auto;
+            background: linear-gradient(to bottom, #1a0b2e, #4c1c5c);
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        /* प्लेयर (कैरेक्टर) */
+        #player {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: #ff007f;
+            border-radius: 8px;
+            bottom: 50px;
+            left: 50px;
+            box-shadow: 0 0 10px #ff007f;
+            transition: bottom 0.05s linear;
+        }
+        /* रुकावट (Obstacle) */
+        .obstacle {
+            position: absolute;
+            width: 30px;
+            height: 45px;
+            background: #00ffff;
+            border-radius: 4px;
+            bottom: 50px;
+            box-shadow: 0 0 10px #00ffff;
+        }
+        /* जमीन (Ground) */
+        #ground {
+            position: absolute;
+            width: 100%;
+            height: 50px;
+            background: #222;
+            border-top: 4px solid #fff;
+            bottom: 0;
+        }
+        /* स्कोर बोर्ड */
+        #scoreBoard {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            font-size: 20px;
+            font-weight: bold;
+            text-shadow: 0 0 5px #000;
+            z-index: 10;
+        }
+        /* गेम ओवर स्क्रीन */
+        #gameOverScreen {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            z-index: 20;
+        }
+        #gameOverScreen h1 {
+            font-size: 36px;
+            color: #ff007f;
+            margin-bottom: 10px;
+        }
+        #gameOverScreen p {
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        #restartBtn {
+            padding: 12px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            background: #00ffff;
+            color: #000;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            box-shadow: 0 0 15px #00ffff;
+        }
+        /* मोबाइल के लिए टच हिंट */
+        #touchHint {
+            position: absolute;
+            bottom: 60px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255,255,255,0.4);
+            font-size: 14px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="gameContainer">
+        <div id="scoreBoard">स्कोर: <span id="score">0</span></div>
+        <div id="player"></div>
+        <div id="ground"></div>
+        <div id="touchHint">जंप करने के लिए कहीं भी टच करें</div>
+        
+        <div id="gameOverScreen">
+            <h1>गेम ओवर!</h1>
+            <p>आपका स्कोर: <span id="finalScore">0</span></p>
+            <button id="restartBtn">फिर से खेलें</button>
+        </div>
+    </div>
+
+    <script>
+        const player = document.getElementById('player');
+        const gameContainer = document.getElementById('gameContainer');
+        const scoreDisplay = document.getElementById('score');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const finalScoreDisplay = document.getElementById('finalScore');
+        const restartBtn = document.getElementById('restartBtn');
+
+        let isJumping = false;
+        let score = 0;
+        let gameActive = true;
+        let obstacleTimeout;
+        let gameLoopInterval;
+        
+        // स्क्रीन साइज के हिसाब से वैल्यू सेट करना
+        const groundHeight = 50;
+        let playerBottom = groundHeight;
+        let gravity = 3;
+        let jumpStrength = 130;
+
+        // जंप करने का फंक्शन (मोबाइल टच और कंप्यूटर स्पेस-बार दोनों के लिए)
+        function jump() {
+            if (isJumping || !gameActive) return;
+            isJumping = true;
+            
+            let upInterval = setInterval(() => {
+                if (playerBottom >= groundHeight + jumpStrength) {
+                    clearInterval(upInterval);
+                    // नीचे आने का लॉजिक
+                    let downInterval = setInterval(() => {
+                        if (playerBottom <= groundHeight) {
+                            clearInterval(downInterval);
+                            playerBottom = groundHeight;
+                            player.style.bottom = playerBottom + 'px';
+                            isJumping = false;
+                        } else {
+                            playerBottom -= gravity * 2.5;
+                            player.style.bottom = playerBottom + 'px';
+                        }
+                    }, 20);
+                } else {
+                    playerBottom += gravity * 3;
+                    player.style.bottom = playerBottom + 'px';
+                }
+            }, 20);
+        }
+
+        // रुकावटें (Obstacles) बनाने का फंक्शन
+        function createObstacle() {
+            if (!gameActive) return;
+
+            const obstacle = document.createElement('div');
+            obstacle.classList.add('obstacle');
+            gameContainer.appendChild(obstacle);
+
+            let obstacleLeft = gameContainer.offsetWidth;
+            obstacle.style.left = obstacleLeft + 'px';
+
+            // रुकावट को आगे बढ़ाने की स्पीड
+            let moveSpeed = 5 + Math.floor(score / 5); // स्कोर बढ़ने पर स्पीड बढ़ेगी
+
+            let obstacleInterval = setInterval(() => {
+                if (!gameActive) {
+                    clearInterval(obstacleInterval);
+                    return;
+                }
+
+                obstacleLeft -= moveSpeed;
+                obstacle.style.left = obstacleLeft + 'px';
+
+                // जब रुकावट स्क्रीन से बाहर चली जाए
+                if (obstacleLeft < -30) {
+                    clearInterval(obstacleInterval);
+                    obstacle.remove();
+                    score++;
+                    scoreDisplay.innerText = score;
+                }
+
+                // टक्कर (Collision) चेक करने का लॉजिक
+                let playerRect = player.getBoundingClientRect();
+                let obstacleRect = obstacle.getBoundingClientRect();
+
+                if (
+                    playerRect.left < obstacleRect.right &&
+                    playerRect.right > obstacleRect.left &&
+                    playerRect.bottom > obstacleRect.top &&
+                    playerRect.top < obstacleRect.bottom
+                ) {
+                    clearInterval(obstacleInterval);
+                    endGame();
+                }
+            }, 20);
+
+            // अगली रुकावट रैंडम समय के बाद आएगी
+            let randomTime = Math.random() * (2000 - 900) + 900;
+            obstacleTimeout = setTimeout(createObstacle, randomTime);
+        }
+
+        // गेम खत्म होने पर
+        function endGame() {
+            gameActive = false;
+            clearTimeout(obstacleTimeout);
+            finalScoreDisplay.innerText = score;
+            gameOverScreen.style.display = 'flex';
+        }
+
+        // गेम रीस्टार्ट करने के लिए
+        function restartGame() {
+            // पुरानी रुकावटें हटाना
+            const obstacles = document.querySelectorAll('.obstacle');
+            obstacles.forEach(obs => obs.remove());
+
+            score = 0;
+            scoreDisplay.innerText = score;
+            playerBottom = groundHeight;
+            player.style.bottom = playerBottom + 'px';
+            isJumping = false;
+            gameActive = true;
+            gameOverScreen.style.display = 'none';
+            
+            createObstacle();
+        }
+
+        // कंट्रोल्स (Controls) - स्क्रीन टच और कीबोर्ड दोनों सपोर्टेड हैं
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                jump();
+            }
+        });
+
+        gameContainer.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // डबल टैप ज़ूम रोकने के लिए
+            jump();
+        });
+        
+        gameContainer.addEventListener('mousedown', () => {
+            jump();
+        });
+
+        restartBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // बटन क्लिक पर जंप न हो
+            restartGame();
+        });
+
+        // पहली बार गेम शुरू करना
+        createObstacle();
+    </script>
+</body>
+  </html>
